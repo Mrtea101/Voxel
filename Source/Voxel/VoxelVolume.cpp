@@ -14,9 +14,14 @@
 #include "RealtimeMeshSimple.h"
 #include "Mesh/RealtimeMeshBasicShapeTools.h"
 #include "Mesh/RealtimeMeshBuilder.h"
+#include "Mesh/RealtimeMeshSimpleData.h"
 
-#include "VoxelUtilities/VoxelStatics.h"
+#include "VoxelChunk/VoxelChunkNode.h"
+#include "VoxelChunk/VoxelDirtyChunkData.h"
+#include "VoxelChunk/AsyncVoxelGenerateChunk.h"
 #include "VoxelProceduralGeneration/VoxelProceduralGenerator.h"
+#include "VoxelUtilities/VoxelStatics.h"
+#include "VoxelUtilities/Array3D.h"
 
 
 AVoxelVolume::AVoxelVolume()
@@ -186,18 +191,6 @@ void AVoxelVolume::RegenerateChunk(FVoxelDirtyChunkData* OutChunkMeshData)
 		}
 	}
 }
-
-const FVector FVoxelChunkNode::NodeOffsets[8] =
-{
-	FVector(-0.5f, -0.5f, -0.5f),
-	FVector(-0.5f, -0.5f, 0.5f),
-	FVector(-0.5f, 0.5f, -0.5f),
-	FVector(-0.5f, 0.5f, 0.5f),
-	FVector(0.5f, -0.5f, -0.5f),
-	FVector(0.5f, -0.5f, 0.5f),
-	FVector(0.5f, 0.5f, -0.5f),
-	FVector(0.5f, 0.5f, 0.5f)
-};
 
 bool AVoxelVolume::RechunkToCenter(TMap<FVoxelChunkNode*, TArray<FVoxelChunkNode*>>& OutGroupedDirtyChunks)
 {
@@ -607,9 +600,4 @@ void AVoxelVolume::UpdateVolume(bool bShouldRechunk, bool bSynchronous)
 			}
 		}
 	}
-}
-
-void AsyncVoxelGenerateChunk::DoWork()
-{
-	VoxelVolume->RegenerateChunk(DirtyChunkData);
 }
