@@ -13,8 +13,6 @@ struct FVoxelDirtyChunkData;
 
 struct FVoxelDirtyChunkData
 {
-	using FRmcUpdate = TFuture<ERealtimeMeshProxyUpdateStatus>;
-
 	FVoxelDirtyChunkData() {};
 
 	FVoxelDirtyChunkData(FVoxelChunkNode* InChunk, int InChunkResolution, FVoxelChunkNode* InBatchChunkKey)
@@ -46,8 +44,8 @@ struct FVoxelDirtyChunkData
 	FVoxelChunkNode* BatchChunkKey = nullptr;
 
 	FAsyncTask<AsyncVoxelGenerateChunk>* tGeneration = nullptr;
-	FRmcUpdate fMeshUpdate;
-	FRmcUpdate fCollisionUpdate;
+	FThreadSafeBool bMeshBuilt;
+	FThreadSafeBool bCollisionBuilt;
 
 	FArray3D<double> CornerDensityValues;
 	FRealtimeMeshStreamSet StreamSet;

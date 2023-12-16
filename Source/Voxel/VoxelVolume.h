@@ -23,6 +23,8 @@ class VOXEL_API AVoxelVolume : public ARealtimeMeshActor
 {
 	GENERATED_BODY()
 
+	using FRmcUpdate = TFuture<ERealtimeMeshProxyUpdateStatus>;
+
 	friend class AsyncVoxelGenerateChunk;
 
 	AVoxelVolume();
@@ -90,6 +92,10 @@ public:
 	// Threshold that determines the boundary between which corners should be considered fully active (where mesh is created)
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Voxel", Meta = (ClampMin = "0", ClampMax = "1"))
 	double ActiveDensityThreshold = 1.0;
+	
+	// Should smooth vertices, fairly expensive currently
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Voxel", Meta = (ClampMin = "1"))
+	bool bSmoothVertexNormals = true;
 
 	// Chunk depth, from most detailed, to create collision for
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Voxel")
@@ -98,4 +104,24 @@ public:
 	// Number of materials to use
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Voxel", Meta = (ClampMin = "1"))
 	uint8 NumMaterials = 1;
+
+	FVector2D GetUvFromPosAndDotVector(const FVector3f& InPos, const FVector3f& InDotVector)
+	{
+		FVector2D uv;
+
+		if (InDotVector.X > InDotVector.Y && InDotVector.X > InDotVector.Z)
+		{
+			uv.Set(InPos.Z, InPos.Y);
+		}
+		else if (InDotVector.Y > InDotVector.X && InDotVector.Y > InDotVector.Z)
+		{
+			uv.Set(InPos.X, InPos.Z);
+		}
+		else
+		{
+			uv.Set(InPos.X, InPos.Y);
+		}
+
+		return uv;
+	}
 };

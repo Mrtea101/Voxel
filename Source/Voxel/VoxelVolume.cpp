@@ -53,12 +53,16 @@ void AVoxelVolume::OnConstruction(const FTransform& Transform)
 void AVoxelVolume::RegenerateChunk(FVoxelDirtyChunkData* OutChunkMeshData)
 {
 	float time = UGameplayStatics::GetTimeSeconds(this);
+	const FVector volumeLocation(GetActorLocation());
+	const FVector3f chunkLocation(OutChunkMeshData->Chunk->Location);
 
 	const int edgeCount = ChunkResolution + 1;
 	const double chunkExtent = OutChunkMeshData->Chunk->GetExtent(VolumeExtent);
 	const double chunkSize = chunkExtent * 2;
 	const double voxelExtent = chunkExtent / ChunkResolution;
 	const double voxelSize = voxelExtent * 2;
+
+	auto pg = ProceduralGeneratorClass.GetDefaultObject();
 
 	FArray3D<double>& densityValues = OutChunkMeshData->CornerDensityValues;
 	FRealtimeMeshStreamSet& streamSet = OutChunkMeshData->StreamSet;
@@ -70,25 +74,15 @@ void AVoxelVolume::RegenerateChunk(FVoxelDirtyChunkData* OutChunkMeshData)
 
 	// Try to make allocations outside the loop
 	double densityBuffer[8];
-	FVector edgeVertexBuffer[12];
-	FIntVector cornerLocationIndex;
-	FVector cornerLocationWorld;
+	FVector3f edgeVertexBuffer[12];
+	FVector3f edgeNormalBuffer[12];
 	int idxFlag = 0;
-	int edgeFlags = 0;
-	int i = 0;
 	int x = 0;
 	int y = 0;
 	int z = 0;
-	double edgeOffset = 0.0;
-	double c1 = 0.0;
-	double c2 = 0.0;
-	FVector3f a;
-	FVector3f b;
-	FVector3f c;
-	FVector3f n;
-	uint32 ia = 0;
-	uint32 ib = 0;
-	uint32 ic = 0;
+	int i = 0;
+	//FVector3f dotVector;
+	//FVector2D uv;
 
 	// Start marching cubes
 	for (x = 0; x < ChunkResolution; x++)
@@ -100,18 +94,23 @@ void AVoxelVolume::RegenerateChunk(FVoxelDirtyChunkData* OutChunkMeshData)
 				// Find values at the cube's corners
 				for (i = 0; i < 8; i++)
 				{
-					cornerLocationIndex.X = x + (int)VoxelStatics::a2fVertexOffset[i][0];
-					cornerLocationIndex.Y = y + (int)VoxelStatics::a2fVertexOffset[i][1];
-					cornerLocationIndex.Z = z + (int)VoxelStatics::a2fVertexOffset[i][2];
+					const FIntVector cornerLocationIndex =
+					{
+						x + (int)VoxelStatics::a2fVertexOffset[i][0],
+						y + (int)VoxelStatics::a2fVertexOffset[i][1],
+						z + (int)VoxelStatics::a2fVertexOffset[i][2]
+					};
 
 					if (densityValues[cornerLocationIndex] == -1.0)
 					{
-						cornerLocationWorld.Set(
-							OutChunkMeshData->Chunk->Location.X - chunkExtent + cornerLocationIndex.X * voxelSize,
-							OutChunkMeshData->Chunk->Location.Y - chunkExtent + cornerLocationIndex.Y * voxelSize,
-							OutChunkMeshData->Chunk->Location.Z - chunkExtent + cornerLocationIndex.Z * voxelSize
-						);
-						densityValues[cornerLocationIndex] = ProceduralGeneratorClass.GetDefaultObject()->GenerateProceduralValue(cornerLocationWorld, VolumeExtent, GetActorLocation(), time);
+						const FVector cornerLocationWorld =
+						{
+							chunkLocation.X - chunkExtent + cornerLocationIndex.X * voxelSize,
+							chunkLocation.Y - chunkExtent + cornerLocationIndex.Y * voxelSize,
+							chunkLocation.Z - chunkExtent + cornerLocationIndex.Z * voxelSize
+						};
+
+						densityValues[cornerLocationIndex] = pg->GenerateProceduralValue(cornerLocationWorld, VolumeExtent);
 					}
 					
 					densityBuffer[i] = densityValues[cornerLocationIndex];
@@ -126,7 +125,7 @@ void AVoxelVolume::RegenerateChunk(FVoxelDirtyChunkData* OutChunkMeshData)
 				}
 
 				// Find which edges are intersected by the surface
-				edgeFlags = VoxelStatics::aiCubeEdgeFlags[idxFlag];
+				const int edgeFlags = VoxelStatics::aiCubeEdgeFlags[idxFlag];
 
 				// If the cube is entirely inside or outside of the surface,
 				// then there will be no intersections, continue to next cube
@@ -138,49 +137,98 @@ void AVoxelVolume::RegenerateChunk(FVoxelDirtyChunkData* OutChunkMeshData)
 					//if there is an intersection on this edge
 					if (edgeFlags & (1 << i))
 					{
-						c1 = densityBuffer[VoxelStatics::a2iEdgeConnection[i][0]];
-						c2 = densityBuffer[VoxelStatics::a2iEdgeConnection[i][1]];
-						edgeOffset = c1 == c2 ? 0.5 : FMath::Clamp((ActiveDensityThreshold - c1) / (c2 - c1), 0.0, 1.0);
+						const double c1 = densityBuffer[VoxelStatics::a2iEdgeConnection[i][0]];
+						const double c2 = densityBuffer[VoxelStatics::a2iEdgeConnection[i][1]];
+						const double edgeOffset = c1 == c2 ? 0.5 : FMath::Clamp((ActiveDensityThreshold - c1) / (c2 - c1), 0.0, 1.0);
 
-						edgeVertexBuffer[i].X = (x + VoxelStatics::a2fVertexOffset[VoxelStatics::a2iEdgeConnection[i][0]][0]
-							+ edgeOffset * VoxelStatics::a2fEdgeDirection[i][0]) * voxelSize - chunkExtent;
+						edgeVertexBuffer[i].Set(
+							VoxelStatics::a2fVertexOffset[VoxelStatics::a2iEdgeConnection[i][0]][0] + x
+							+ VoxelStatics::a2fEdgeDirection[i][0] * edgeOffset,
 
-						edgeVertexBuffer[i].Y = (y + VoxelStatics::a2fVertexOffset[VoxelStatics::a2iEdgeConnection[i][0]][1]
-							+ edgeOffset * VoxelStatics::a2fEdgeDirection[i][1]) * voxelSize - chunkExtent;
+							VoxelStatics::a2fVertexOffset[VoxelStatics::a2iEdgeConnection[i][0]][1] + y
+							+ VoxelStatics::a2fEdgeDirection[i][1] * edgeOffset,
 
-						edgeVertexBuffer[i].Z = (z + VoxelStatics::a2fVertexOffset[VoxelStatics::a2iEdgeConnection[i][0]][2]
-							+ edgeOffset * VoxelStatics::a2fEdgeDirection[i][2]) * voxelSize - chunkExtent;
+							VoxelStatics::a2fVertexOffset[VoxelStatics::a2iEdgeConnection[i][0]][2] + z
+							+ VoxelStatics::a2fEdgeDirection[i][2] * edgeOffset
+						);
+
+						edgeVertexBuffer[i] *= voxelSize;
+						edgeVertexBuffer[i] += chunkLocation - chunkExtent;
 					}
 					else
 					{
-						edgeVertexBuffer[i] = FVector::ZeroVector;
+						edgeVertexBuffer[i] = FVector3f::ZeroVector;
+					}
+
+					// We get we average the density values for +x,y,z and -x,y,z
+					// Todo, take from neighboring corners that are already calculated (densityValues)
+					if (bSmoothVertexNormals)
+					{
+						const FVector3f offsetX(voxelSize, 0, 0);
+						const FVector3f offsetY(0, voxelSize, 0);
+						const FVector3f offsetZ(0, 0, voxelSize);
+
+						const FVector pX(edgeVertexBuffer[i] + offsetX);
+						const FVector pY(edgeVertexBuffer[i] + offsetY);
+						const FVector pZ(edgeVertexBuffer[i] + offsetZ);
+
+						const FVector pMX(edgeVertexBuffer[i] - offsetX);
+						const FVector pMY(edgeVertexBuffer[i] - offsetY);
+						const FVector pMZ(edgeVertexBuffer[i] - offsetZ);
+
+						edgeNormalBuffer[i].Set
+						(
+							pg->GenerateProceduralValue(pX, VolumeExtent) - pg->GenerateProceduralValue(pMX, VolumeExtent),
+							pg->GenerateProceduralValue(pY, VolumeExtent) - pg->GenerateProceduralValue(pMY, VolumeExtent),
+							pg->GenerateProceduralValue(pZ, VolumeExtent) - pg->GenerateProceduralValue(pMZ, VolumeExtent)
+						);
+
+						edgeNormalBuffer[i].Normalize(0);
 					}
 				}
 
 				//Draw the triangles that were found, there can be up to five per cube
 				for (i = 0; i < 5; i++)
 				{
-					if (VoxelStatics::a2iTriangleConnectionTable[idxFlag][3 * i] < 0) break;
+					const uint8 idxTableVertex = i * 3;
+					if (VoxelStatics::a2iTriangleConnectionTable[idxFlag][idxTableVertex] < 0) break;
 
-					a = FVector3f(edgeVertexBuffer[VoxelStatics::a2iTriangleConnectionTable[idxFlag][3 * i + 0]] + OutChunkMeshData->Chunk->Location);
-					b = FVector3f(edgeVertexBuffer[VoxelStatics::a2iTriangleConnectionTable[idxFlag][3 * i + 1]] + OutChunkMeshData->Chunk->Location);
-					c = FVector3f(edgeVertexBuffer[VoxelStatics::a2iTriangleConnectionTable[idxFlag][3 * i + 2]] + OutChunkMeshData->Chunk->Location);
-					
-					n = FVector3f::CrossProduct(b - a, c - a).GetUnsafeNormal();
+					const uint8 idxVertexA = VoxelStatics::a2iTriangleConnectionTable[idxFlag][idxTableVertex];
+					const uint8 idxVertexB = VoxelStatics::a2iTriangleConnectionTable[idxFlag][idxTableVertex + 1];
+					const uint8 idxVertexC = VoxelStatics::a2iTriangleConnectionTable[idxFlag][idxTableVertex + 2];
 
-					ia = builder.AddVertex(a)
-						.SetNormalAndTangent(n, FVector3f(0,-1,0))
-						.SetTexCoords(FVector2D(0,0))
+					if (!bSmoothVertexNormals)
+					{
+						edgeNormalBuffer[0] = FVector3f::CrossProduct(
+							edgeVertexBuffer[idxVertexC] - edgeVertexBuffer[idxVertexA],
+							edgeVertexBuffer[idxVertexB] - edgeVertexBuffer[idxVertexA]
+						);
+
+						edgeNormalBuffer[0].Normalize();
+					}
+
+					//dotVector = 
+					//{
+					//	n.Dot(FVector3f::RightVector),
+					//	n.Dot(FVector3f::ForwardVector),
+					//	n.Dot(FVector3f::UpVector)
+					//};
+					//
+					//dotVector = dotVector.GetAbs();
+
+					const uint32 ia = builder.AddVertex(edgeVertexBuffer[idxVertexA])
+						.SetNormalAndTangent(edgeNormalBuffer[bSmoothVertexNormals ? idxVertexA : 0], FVector3f(0, 1, 0))
+						.SetTexCoords(FVector2D())
 						.GetIndex();
 
-					ib = builder.AddVertex(b)
-						.SetNormalAndTangent(n, FVector3f(0, -1, 0))
-						.SetTexCoords(FVector2D(0, 1))
+					const uint32 ib = builder.AddVertex(edgeVertexBuffer[idxVertexB])
+						.SetNormalAndTangent(edgeNormalBuffer[bSmoothVertexNormals ? idxVertexB : 0], FVector3f(0, 1, 0))
+						.SetTexCoords(FVector2D())
 						.GetIndex();
 
-					ic = builder.AddVertex(c)
-						.SetNormalAndTangent(n, FVector3f(0, -1, 0))
-						.SetTexCoords(FVector2D(1, 0))
+					const uint32 ic = builder.AddVertex(edgeVertexBuffer[idxVertexC])
+						.SetNormalAndTangent(edgeNormalBuffer[bSmoothVertexNormals ? idxVertexC : 0], FVector3f(0, 1, 0))
+						.SetTexCoords(FVector2D())
 						.GetIndex();
 
 					builder.AddTriangle(ia, ib, ic, 0);
@@ -337,7 +385,7 @@ void AVoxelVolume::RebatchDirtyChunks(TMap<FVoxelChunkNode*, TArray<FVoxelChunkN
 	for (TPair<FVoxelChunkNode*, TArray<FVoxelChunkNode*>>& group : InDirtyChunkGroups)
 	{
 		// If this chunk was already dirty and being handled, we need to consider that
-		if (auto arrayRef = DirtyChunkBatches.Find(group.Key))
+		if (TArray<FVoxelChunkNode*>* arrayRef = DirtyChunkBatches.Find(group.Key))
 		{
 			// Case 1:
 			// 
@@ -349,8 +397,8 @@ void AVoxelVolume::RebatchDirtyChunks(TMap<FVoxelChunkNode*, TArray<FVoxelChunkN
 			{
 				if (CancelNodeSection(group.Key))
 				{
-					auto children = group.Key->GetChildren();
-					for (auto child : children)
+					TArray<FVoxelChunkNode*> children = group.Key->GetChildren();
+					for (FVoxelChunkNode* child : children)
 					{
 						if (child->SectionID)
 						{
@@ -371,7 +419,7 @@ void AVoxelVolume::RebatchDirtyChunks(TMap<FVoxelChunkNode*, TArray<FVoxelChunkN
 			//		the creation of each node (if possible, if not, we need to to delete them)
 			//		the deletion of the parent
 
-			for (auto node : *arrayRef)
+			for (FVoxelChunkNode* node : *arrayRef)
 			{
 				CancelNodeSection(node, true);
 			}
@@ -395,7 +443,7 @@ void AVoxelVolume::RebatchDirtyChunks(TMap<FVoxelChunkNode*, TArray<FVoxelChunkN
 		// Note: the value array nodes possibly have greater than 1 depth from parent (could be more than 8)
 		else
 		{
-			for (auto leaf : group.Value)
+			for (FVoxelChunkNode* leaf : group.Value)
 			{
 				auto data = DirtyChunkDataMap.Add(leaf, new FVoxelDirtyChunkData(leaf, ChunkResolution, group.Key));
 				data->tGeneration = new FAsyncTask<AsyncVoxelGenerateChunk>(this, data);
@@ -482,6 +530,9 @@ void AVoxelVolume::UpdateVolume(bool bShouldRechunk, bool bSynchronous)
 		FVoxelChunkNode* chunkNode = DirtyChunkNodes[idxNode];
 		if (!chunkNode) continue;
 
+		check(0 <= chunkNode->Depth)
+		check(chunkNode->Depth <= MaxDepth)
+
 		FVoxelDirtyChunkData* chunkData = DirtyChunkDataMap.FindRef(chunkNode);
 		if (!chunkData) continue;
 
@@ -497,8 +548,7 @@ void AVoxelVolume::UpdateVolume(bool bShouldRechunk, bool bSynchronous)
 			chunkData->CornerDensityValues.Empty();
 			chunkData->StreamSet.Empty();
 		}
-
-		if (!chunkNode->SectionID && chunkData->bHasAnyVertices)
+		else if (!chunkNode->SectionID)
 		{
 			if (!NodeSectionIDTracker) NodeSectionIDTracker++;
 			chunkNode->SectionID = NodeSectionIDTracker++;
@@ -510,41 +560,40 @@ void AVoxelVolume::UpdateVolume(bool bShouldRechunk, bool bSynchronous)
 
 			//UE_LOG(LogTemp, Warning, TEXT("CreateSectionGroup Started (%s)"), *name.ToString());
 
-			chunkData->fMeshUpdate = RealtimeMesh->CreateSectionGroup(SectionGroupKey, chunkData->StreamSet);
-
-			chunkData->fMeshUpdate.Next
+			RealtimeMesh->CreateSectionGroup(SectionGroupKey, chunkData->StreamSet).Next
 			(
-				[this, name](ERealtimeMeshProxyUpdateStatus Status)
+				[this, name, chunkData](ERealtimeMeshProxyUpdateStatus Status)
 				{
-					UE_LOG(LogTemp, Warning, TEXT("CreateSectionGroup Finished (SectionGroup_%s)"), *name.ToString());
-					MeshBuildingTracker.Decrement();
+					chunkData->bMeshBuilt.AtomicSet(true);
 				}
 			);
 
-			bool bShouldCreateCollision = MaxDepth - chunkNode->Depth + 1 <= CollisionInverseDepth;
-			chunkData->fCollisionUpdate = RealtimeMesh->UpdateSectionConfig
+			const bool bShouldCreateCollision = MaxDepth - chunkNode->Depth + 1 <= CollisionInverseDepth;
+			RealtimeMesh->UpdateSectionConfig
 			(
 				FRealtimeMeshSectionKey::CreateForPolyGroup(SectionGroupKey, 0),
 				FRealtimeMeshSectionConfig(ERealtimeMeshSectionDrawType::Dynamic, 0),
 				bShouldCreateCollision
+			).Next
+			(
+				[this, name, chunkData](ERealtimeMeshProxyUpdateStatus Status)
+				{
+					UE_LOG(LogTemp, Warning, TEXT("CreateSectionGroup Finished (%s)"), *name.ToString());
+					MeshBuildingTracker.Decrement();
+					chunkData->bCollisionBuilt.AtomicSet(true);
+				}
 			);
-
-			if (bSynchronous)
-			{
-				chunkData->fMeshUpdate.Wait();
-				chunkData->fCollisionUpdate.Wait();
-			}
 		}
 
-		if (!chunkData->bHasAnyVertices || (chunkNode->SectionID && chunkData->fCollisionUpdate.IsValid() && chunkData->fCollisionUpdate.IsReady()))
+		if (!chunkData->bHasAnyVertices || (chunkNode->SectionID && chunkData->bCollisionBuilt))
 		{
 			// Case 1:
 			// 
 			// Lower detail parent finished section, we can delete all its children now
 			if (chunkNode == chunkData->BatchChunkKey)
 			{
-				auto children = chunkNode->GetChildren();
-				for (auto child : children)
+				TArray<FVoxelChunkNode*> children = chunkNode->GetChildren();
+				for (FVoxelChunkNode* child : children)
 				{
 					if (child->SectionID)
 					{
@@ -575,7 +624,7 @@ void AVoxelVolume::UpdateVolume(bool bShouldRechunk, bool bSynchronous)
 			// Higher detail child finished section, we can delete its parent now if all its siblings are done
 			else
 			{
-				if (auto arrayRef = DirtyChunkBatches.Find(chunkData->BatchChunkKey))
+				if (TArray<FVoxelChunkNode*>* arrayRef = DirtyChunkBatches.Find(chunkData->BatchChunkKey))
 				{
 					arrayRef->Remove(chunkNode);
 					DirtyChunkDataMap.Remove(chunkNode);
@@ -599,5 +648,10 @@ void AVoxelVolume::UpdateVolume(bool bShouldRechunk, bool bSynchronous)
 				}
 			}
 		}
+	}
+
+	if (bSynchronous && DirtyChunkDataMap.Num())
+	{
+		UpdateVolume(false, true);
 	}
 }
