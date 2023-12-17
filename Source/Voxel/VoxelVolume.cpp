@@ -207,15 +207,6 @@ void AVoxelVolume::RegenerateChunk(FVoxelDirtyChunkData* OutChunkMeshData)
 						edgeNormalBuffer[0].Normalize();
 					}
 
-					//dotVector = 
-					//{
-					//	n.Dot(FVector3f::RightVector),
-					//	n.Dot(FVector3f::ForwardVector),
-					//	n.Dot(FVector3f::UpVector)
-					//};
-					//
-					//dotVector = dotVector.GetAbs();
-
 					const uint32 ia = builder.AddVertex(edgeVertexBuffer[idxVertexA])
 						.SetNormalAndTangent(edgeNormalBuffer[bSmoothVertexNormals ? idxVertexA : 0], FVector3f(0, 1, 0))
 						.SetTexCoords(FVector2D())

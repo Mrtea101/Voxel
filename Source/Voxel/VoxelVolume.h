@@ -83,7 +83,7 @@ public:
 	
 	// Number of subdivisions the main chunk will get to provide more detail (should be near log2(ChunkResolution))
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Voxel")
-	uint8 MaxDepth = 6;
+	uint8 MaxDepth = 3;
 
 	// Factor for chunk render distance
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Voxel")
@@ -99,29 +99,9 @@ public:
 
 	// Chunk depth, from most detailed, to create collision for
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Voxel")
-	uint8 CollisionInverseDepth = 0;
+	uint8 CollisionInverseDepth = 3;
 	
 	// Number of materials to use
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Voxel", Meta = (ClampMin = "1"))
 	uint8 NumMaterials = 1;
-
-	FVector2D GetUvFromPosAndDotVector(const FVector3f& InPos, const FVector3f& InDotVector)
-	{
-		FVector2D uv;
-
-		if (InDotVector.X > InDotVector.Y && InDotVector.X > InDotVector.Z)
-		{
-			uv.Set(InPos.Z, InPos.Y);
-		}
-		else if (InDotVector.Y > InDotVector.X && InDotVector.Y > InDotVector.Z)
-		{
-			uv.Set(InPos.X, InPos.Z);
-		}
-		else
-		{
-			uv.Set(InPos.X, InPos.Y);
-		}
-
-		return uv;
-	}
 };
